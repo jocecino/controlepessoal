@@ -49,9 +49,9 @@ nav button span{display:block;font-size:19px}nav button.on{color:var(--pri);font
 /* ===== CONFIG: cole aqui a URL do app da web (Apps Script). Vazio = modo local de teste ===== */
 const API_URL='';
 const ST=['A fazer','Em andamento','Concluído','Entregue','Pago'];
-const CATS=['Material','Ferramentas','Transporte','Pagamento de cliente','Pessoal','Alimentação','Outros'];
+const CATS=['Material','Ferramentas','Transporte','Pagamento de cliente','Pessoal','Alimentação','Aluguel','Água','Energia','Internet','Outros'];
 const FORMAS=['Pix','Dinheiro','Cartão','Débito','Transferência'];
-const K=['servicos','lancamentos','tarefas','contas','cartoes','faturas'];
+const K=['servicos','lancamentos','tarefas','contas','cartoes','faturas','fixos'];
 let D={},VERSAO=0,BASE={},dirty=false,SENHA='',auth=false,view='dash',SS='',F={sv:'Todos',tf:'A fazer',mes:'',cat:'',cli:'',org:''};
 K.forEach(k=>D[k]=[]);
 const mem={},store={get:k=>{try{return localStorage.getItem(k)}catch(e){return mem[k]??null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){mem[k]=v}}};
@@ -73,7 +73,7 @@ const N=(a,ks)=>a.forEach(o=>ks.forEach(k=>o[k]=+o[k]||0)),B=(a,ks)=>a.forEach(o
 function normD(d){K.forEach(k=>d[k]=d[k]||[]);
   DT(d.lancamentos,['data']);DT(d.servicos,['entrega']);DT(d.faturas,['dataPgto']);
   N(d.servicos,['valor']);N(d.lancamentos,['valor']);N(d.contas,['saldoInicial']);N(d.cartoes,['limite','fechamento','vencimento']);N(d.faturas,['valor']);
-  B(d.lancamentos,['pend','fatura']);B(d.tarefas,['feita']);B(d.contas,['encerrada']);B(d.cartoes,['encerrado']);B(d.faturas,['pago']);
+  B(d.lancamentos,['pend','fatura']);B(d.tarefas,['feita']);B(d.contas,['encerrada']);B(d.cartoes,['encerrado']);B(d.faturas,['pago']);N(d.fixos,['valor','dia']);B(d.fixos,['encerrado']);
   d.servicos.forEach(s=>{if(!['Banco','Espécie'].includes(s.destino))s.destino='Banco'});
   d.contas.forEach(c=>{if(!c.tipo)c.tipo=c.nome==='Espécie'?'Espécie':'Banco'});return d}
 const snap=d=>{const b={};K.forEach(k=>{b[k]={};d[k].forEach(o=>b[k][o.id]=JSON.stringify(o))});return b};
@@ -118,9 +118,31 @@ const alertas=()=>listaFaturas().filter(f=>!f.pago&&f.total>0&&dias(f.venc)<=7);
 function statusFat(f){if(f.pago)return'Paga';const d=dias(f.venc);
   return(f.resto?'Complemento · ':'')+(d<0?`Vencida há ${-d} dia(s)`:d===0?'Vence hoje':d<=7?`Vence em ${d} dia(s)`:'Em aberto')}
 
+/* ===== gastos fixos: geram uma despesa pendente por mês (mês atual e o próximo) ===== */
+function gerarFixos(){let mudou=false;const h=hoje(),m0=h.slice(0,7),m1=mesDe(addM(h.slice(0,8)+'01',1));
+  D.fixos.filter(f=>!f.encerrado).forEach(f=>[m0,m1].forEach(m=>{
+    const id='fx_'+f.id+'_'+m;
+    if((f.pulados||'').split(',').includes(m)||D.lancamentos.some(l=>l.id===id||(l.fixoId===f.id&&l.fixoMes===m)))return;
+    const [y,mm]=m.split('-').map(Number),dia=Math.min(f.dia||1,new Date(y,mm,0).getDate());
+    D.lancamentos.push({id,tipo:'Despesa',cat:f.cat||'Outros',forma:'Pix',valor:f.valor,data:ymd(y,mm,dia),desc:f.nome,servicoId:'',pend:true,contaId:f.contaId||'',cartaoId:'',fatura:false,fixoId:f.id,fixoMes:m});mudou=true}));
+  return mudou}
+const pendAl=()=>D.lancamentos.filter(l=>l.tipo==='Despesa'&&l.pend&&!l.cartaoId&&dias(l.data)<=7).sort((a,b)=>a.data.localeCompare(b.data));
+function editFixo(f){
+  const novo=!f.id;
+  form(novo?'Novo gasto fixo':'Editar gasto fixo',[{k:'nome',l:'Nome (água, energia, aluguel, internet…)'},{k:'valor',l:'Valor mensal estimado (R$)',t:'number'},{k:'dia',l:'Dia do vencimento (1 a 31)',t:'number'},
+    {k:'cat',l:'Categoria',t:'select',o:CATS},{k:'contaId',l:'Pago com a conta',t:'select',o:[['','—'],...contasAt().map(c=>[c.id,c.nome])]},{k:'encerrado',l:'Gasto encerrado (para de gerar contas)',t:'checkbox'}],
+    {cat:'Outros',...f},
+    o=>{o.dia=Math.round(o.dia);if(!o.nome||o.dia<1||o.dia>31){alert('Informe o nome e o dia (1 a 31).');return false}
+      const fx=novo?{id:uid(),pulados:''}:D.fixos.find(x=>x.id===f.id);Object.assign(fx,o);
+      if(novo){D.fixos.push(fx);const h=hoje();if(o.dia<+h.slice(8)&&confirm(`O vencimento deste mês (dia ${o.dia}) já passou.\nEsse gasto já foi pago neste mês?\nOK = não lançar este mês.`))fx.pulados+=h.slice(0,7)+','}
+      D.lancamentos.forEach(l=>{if(l.fixoId===fx.id&&l.pend){const [y,m]=l.fixoMes.split('-').map(Number);Object.assign(l,{valor:fx.valor,cat:fx.cat,desc:fx.nome,contaId:fx.contaId||'',data:ymd(y,m,Math.min(fx.dia,new Date(y,m,0).getDate()))})}});
+      gerarFixos()},
+    novo?null:()=>{D.fixos=D.fixos.filter(x=>x.id!==f.id);D.lancamentos=D.lancamentos.filter(l=>!(l.fixoId===f.id&&l.pend))});
+}
+
 /* ===== login / render ===== */
 function login(){
-  $('#app').innerHTML=`<div class="login"><div class="card"><img src="https://i.ibb.co/s9YCSYhx/IMG-3813.jpg" alt="VALIS" class="logo" onerror="this.style.display='none'"><h1 style="margin-bottom:2px">VALIS</h1><div class="k" style="margin-bottom:14px">Finanças Pessoais · Vale do São Francisco</div><p class="k">Digite sua senha${API_URL?'':' (modo local de teste, sem planilha)'}</p>
+  $('#app').innerHTML=`<div class="login"><div class="card"><img src="https://i.ibb.co/s9YCSYhx/IMG-3813.jpg" alt="VALIS" class="logo" onerror="this.style.display='none'"><h1 style="margin-bottom:2px">VALIS</h1><div class="k" style="margin-bottom:14px">Finanças Pessoais · Vale do São Francisco</div><p class="k">Digite sua senha</p>
   <input id="pw" type="password" placeholder="Senha" autocomplete="current-password"><div id="er" class="bad" style="min-height:18px;font-size:13px"></div>
   <button class="btn" style="width:100%" id="go">Entrar</button></div></div>`;
   const go=async()=>{const p=$('#pw').value;SENHA=p;
@@ -131,7 +153,8 @@ function login(){
 }
 function render(){
   if(!auth)return login();
-  const n=alertas().length,nav=[['dash','📊','Relatório'],['serv','🛠️','Serviços'],['lanc','➕','Lançar'],['tar','✅','Tarefas'],['cont','🏦','Contas'],['hist','🕒','Extrato']];
+  if(gerarFixos())save();
+  const n=alertas().length+pendAl().length,nav=[['dash','📊','Relatório'],['serv','🛠️','Serviços'],['lanc','➕','Lançar'],['tar','✅','Tarefas'],['cont','🏦','Contas'],['hist','🕒','Extrato']];
   $('#app').innerHTML=`<main><div class="k" id="ss" style="text-align:right">${E(SS)}</div><div id="m"></div></main><nav>${nav.map(x=>`<button class="${view===x[0]?'on':''}" data-v="${x[0]}"><span>${x[1]}</span>${x[2]}${x[0]==='cont'&&n?` <b style="color:var(--bad)">●${n}</b>`:''}</button>`).join('')}</nav>`;
   document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;render()});
   $('#ss').onclick=()=>{if(SS.startsWith('⚠️'))save()};
@@ -161,12 +184,13 @@ function dash(){
   const S=a=>a.reduce((x,l)=>x+l.valor,0),sm=(a,m)=>S(a.filter(l=>mesDe(l.data)===m));
   const tot=D.contas.reduce((a,c)=>a+saldo(c),0);
   const aRec=D.servicos.filter(s=>s.status!=='Pago').reduce((a,s)=>a+restante(s),0);
-  const aPag=S(L.filter(l=>l.tipo==='Despesa'&&l.pend&&!l.cartaoId))+listaFaturas().filter(f=>!f.pago).reduce((a,f)=>a+f.total,0);
+  const aPag=S(L.filter(l=>l.tipo==='Despesa'&&l.pend&&!l.cartaoId&&mesDe(l.data)<=hoje().slice(0,7)))+listaFaturas().filter(f=>!f.pago).reduce((a,f)=>a+f.total,0);
   const mes=hoje().slice(0,7),mr=sm(rec,mes),md=sm(des,mes),al=alertas();
   const ms=[];for(let i=5;i>=0;i--){const d=new Date();ms.push(mesDe(ymd(d.getFullYear(),d.getMonth()+1-i,1)))}
   const dd=ms.map(m=>[m,sm(rec,m),sm(des,m)]),mx=Math.max(1,...dd.flatMap(d=>[d[1],d[2]]));
   $('#m').innerHTML=`<h1>📊 Relatório</h1>
   ${al.map(f=>`<div class="card al ${dias(f.venc)<0?'b':''} row"><div><b>💳 ${E(f.c.nome)}</b> · ${brl(f.total)}<div class="k">${statusFat(f)} · ${fd(f.venc)}</div></div><button class="btn sm" data-pf="${f.id}">Pagar</button></div>`).join('')}
+  ${pendAl().map(l=>{const d=dias(l.data);return`<div class="card al ${d<0?'b':''} row"><div><b>🧾 ${E(l.desc||l.cat)}</b> · ${brl(l.valor)}<div class="k">${d<0?`Vencida há ${-d} dia(s)`:d===0?'Vence hoje':`Vence em ${d} dia(s)`} · ${fd(l.data)}</div></div><button class="btn sm" data-pg="${l.id}">Pagar</button></div>`}).join('')}
   <div class="grid"><div class="card"><div class="k">Saldo total (contas)</div><div class="v ${tot<0?'bad':'ok'}">${brl(tot)}</div></div>
   <div class="card"><div class="k">A receber</div><div class="v">${brl(aRec)}</div></div>
   <div class="card"><div class="k">A pagar (incl. faturas)</div><div class="v bad">${brl(aPag)}</div></div>
@@ -177,6 +201,7 @@ function dash(){
   <div class="card"><div class="k">Últimos 6 meses · 🟩 receitas 🟥 despesas</div><div class="bars">${dd.map(d=>`<div class="g"><div class="p"><i style="height:${d[1]/mx*100}%;background:var(--ok)"></i><i style="height:${d[2]/mx*100}%;background:var(--bad)"></i></div>${mesFmt(d[0]).slice(0,2)}/${d[0].slice(2,4)}</div>`).join('')}</div></div>
   <div class="row"><button class="btn sec sm" id="pw">🔑 Trocar senha</button>${API_URL?'<button class="btn sec sm" id="rl">🔄 Recarregar</button>':''}<button class="btn sec sm" id="lo">Sair</button></div>`;
   document.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>pagarFatura(listaFaturas().find(f=>f.id===b.dataset.pf)));
+  document.querySelectorAll('[data-pg]').forEach(b=>b.onclick=()=>quitar(D.lancamentos.find(x=>x.id===b.dataset.pg)));
   $('#lo').onclick=()=>{auth=false;SENHA='';render()};
   if($('#rl'))$('#rl').onclick=async()=>{try{const r=await api('carregar');if(r.ok){D=r.dados;VERSAO=r.versao;dirty=false;norm();setSS('☁️ Atualizado da planilha');render()}else alert(r.erro)}catch(e){alert('Sem conexão.')}};
   $('#pw').onclick=async()=>{const n=prompt('Nova senha (mínimo 4 caracteres):');if(!n)return;if(n.length<4)return alert('Senha muito curta.');
@@ -275,9 +300,15 @@ function cont(){
   <div class="sec-h"><h2>Cartões de crédito</h2><button class="btn sm" id="nk">+ Cartão</button></div>
   ${ordC.length?ordC.map(c=>{const usado=abertas.filter(f=>f.c.id===c.id).reduce((a,f)=>a+f.total,0);return`<div class="card" data-k="${c.id}" style="cursor:pointer"><div class="row"><b>💳 ${E(c.nome)}${c.encerrado?' <span class="tag">encerrado</span>':''}</b><b>${brl(usado)}</b></div>
    <div class="k">Fecha dia ${c.fechamento} · vence dia ${c.vencimento}${c.limite?` · limite ${brl(c.limite)} (disp. ${brl(c.limite-usado)})`:''}</div></div>`}).join(''):'<div class="empty">Nenhum cartão cadastrado.</div>'}
+  <div class="sec-h"><h2>Gastos fixos</h2><button class="btn sm" id="nf">+ Fixo</button></div>
+  <div class="chips">${['Aluguel','Energia','Água','Internet'].map(n=>`<div class="chip" data-pre="${n}">+ ${n}</div>`).join('')}</div>
+  ${D.fixos.length?`<div class="k" style="margin-bottom:6px">Total mensal estimado: ${brl(D.fixos.filter(f=>!f.encerrado).reduce((a,f)=>a+f.valor,0))}</div>`+[...D.fixos].sort((a,b)=>a.encerrado-b.encerrado||a.dia-b.dia).map(f=>`<div class="card row" data-fx="${f.id}" style="cursor:pointer"><div><b>${E(f.nome)}</b>${f.encerrado?' <span class="tag">encerrado</span>':''}<div class="k">${E(f.cat)} · todo dia ${f.dia}${f.contaId?' · '+E((D.contas.find(c=>c.id===f.contaId)||{}).nome||''):''}</div></div><b>${brl(f.valor)}</b></div>`).join(''):'<div class="empty">Nenhum gasto fixo cadastrado.</div>'}
   <div class="sec-h"><h2>Faturas</h2></div>
   ${[...abertas,...pagas].map(f=>`<div class="card al ${!f.pago&&dias(f.venc)<0?'b':''} row" style="${f.pago||dias(f.venc)>7?'border-left-color:var(--bd)':''}"><div><b>${E(f.c.nome)}</b> · ${mesFmt(f.k)} · ${brl(f.total)}<div class="k">${statusFat(f)} · venc. ${fd(f.venc)}</div></div>${f.pago?'':`<button class="btn sm" data-pf="${f.id}">Pagar</button>`}</div>`).join('')||'<div class="empty">Sem faturas ainda. Lance uma despesa no cartão.</div>'}`;
   $('#nc').onclick=()=>editConta({saldoInicial:0,tipo:'Banco'});$('#nk').onclick=()=>editCartao({});
+  $('#nf').onclick=()=>editFixo({dia:10,valor:0});
+  document.querySelectorAll('[data-fx]').forEach(e=>e.onclick=()=>editFixo(D.fixos.find(f=>f.id===e.dataset.fx)));
+  document.querySelectorAll('[data-pre]').forEach(e=>e.onclick=()=>editFixo({nome:e.dataset.pre,cat:e.dataset.pre,dia:10,valor:0}));
   document.querySelectorAll('[data-c]').forEach(e=>e.onclick=()=>editConta(D.contas.find(c=>c.id===e.dataset.c)));
   document.querySelectorAll('[data-k]').forEach(e=>e.onclick=()=>editCartao(D.cartoes.find(c=>c.id===e.dataset.k)));
   document.querySelectorAll('[data-pf]').forEach(b=>b.onclick=()=>pagarFatura(fs.find(f=>f.id===b.dataset.pf)));
@@ -309,8 +340,8 @@ function pagarFatura(f){
 }
 function quitar(l){
   if(!l)return;
-  form(l.tipo==='Despesa'?'Marcar como paga':'Marcar como recebida',[{k:'data',l:'Data',t:'date'},{k:'org',l:'Conta',t:'select',o:orgOpts(false,'c:'+l.contaId)}],{data:hoje(),org:'c:'+l.contaId},
-  o=>{l.pend=false;l.data=o.data||hoje();l.contaId=o.org.split(':')[1]});
+  form(l.tipo==='Despesa'?'Marcar como paga':'Marcar como recebida',[{k:'valor',l:'Valor (R$)',t:'number'},{k:'data',l:'Data',t:'date'},{k:'org',l:'Conta',t:'select',o:orgOpts(false,'c:'+l.contaId)}],{valor:l.valor,data:hoje(),org:'c:'+l.contaId},
+  o=>{if(o.valor<=0){alert('Informe o valor.');return false}l.pend=false;l.valor=o.valor;l.data=o.data||hoje();l.contaId=o.org.split(':')[1]});
 }
 
 /* ===== extrato ===== */
@@ -334,7 +365,8 @@ function hist(){
   document.querySelectorAll('[data-id]').forEach(c=>c.onclick=()=>{const l=D.lancamentos.find(x=>x.id===c.dataset.id),cur=org(l);
     form('Editar lançamento',[{k:'tipo',l:'Tipo',t:'select',o:['Receita','Despesa']},{k:'valor',l:'Valor (R$)',t:'number'},{k:'data',l:'Data',t:'date'},{k:'org',l:'Conta / cartão',t:'select',o:orgOpts(true,cur)},{k:'cat',l:'Categoria',t:'select',o:cats},{k:'desc',l:'Descrição'},{k:'pend',l:'Pendente',t:'checkbox'}],{...l,org:cur},
     o=>{if(!o.valor){alert('Valor inválido.');return false}const [t,id]=o.org.split(':');delete o.org;o.contaId=t==='c'?id:'';o.cartaoId=t==='k'?id:'';if(t==='k')o.pend=false;Object.assign(l,o)},
-    ()=>{const g=l.grupoId?D.lancamentos.filter(x=>x.grupoId===l.grupoId):[];
+    ()=>{if(l.fixoId){const fx=D.fixos.find(x=>x.id===l.fixoId);if(fx)fx.pulados=(fx.pulados||'')+l.fixoMes+','}
+      const g=l.grupoId?D.lancamentos.filter(x=>x.grupoId===l.grupoId):[];
       if(g.length>1&&confirm(`Compra parcelada em ${g.length} parcelas.\nOK = excluir TODAS as parcelas.\nCancelar = excluir só esta.`))D.lancamentos=D.lancamentos.filter(x=>x.grupoId!==l.grupoId);else D.lancamentos=D.lancamentos.filter(x=>x.id!==l.id)})});
 }
 document.addEventListener('visibilitychange',async()=>{
