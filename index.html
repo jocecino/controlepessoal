@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Controle Por Fora</title>
+<title>VALIS · Finanças Pessoais · Vale do São Francisco</title>
+<link rel="icon" href="https://i.ibb.co/s9YCSYhx/IMG-3813.jpg">
 <style>
 :root{--bg:#f4f5f7;--card:#fff;--tx:#1b1f24;--mut:#6b7280;--pri:#0f766e;--bd:#e3e6ea;--ok:#15803d;--bad:#b91c1c;--warn:#b45309;--onpri:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}
 @media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2026;--tx:#eceff2;--mut:#98a1ad;--pri:#2dd4bf;--bd:#2b323a;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--onpri:#06201d}}
@@ -38,6 +39,7 @@ nav button span{display:block;font-size:19px}nav button.on{color:var(--pri);font
 .sheet{background:var(--bg);width:100%;max-height:90%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-width:640px;margin:0 auto}
 .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .login .card{width:100%;max-width:340px;text-align:center}
+.logo{display:block;max-width:180px;max-height:180px;width:auto;height:auto;margin:0 auto 10px;border-radius:16px;object-fit:contain}
 .done{text-decoration:line-through;color:var(--mut)}.empty{color:var(--mut);text-align:center;padding:16px}
 </style>
 </head>
@@ -118,7 +120,7 @@ function statusFat(f){if(f.pago)return'Paga';const d=dias(f.venc);
 
 /* ===== login / render ===== */
 function login(){
-  $('#app').innerHTML=`<div class="login"><div class="card"><h1>🛠️ Controle Por Fora</h1><p class="k">Digite sua senha${API_URL?'':' (modo local de teste, sem planilha)'}</p>
+  $('#app').innerHTML=`<div class="login"><div class="card"><img src="https://i.ibb.co/s9YCSYhx/IMG-3813.jpg" alt="VALIS" class="logo" onerror="this.style.display='none'"><h1 style="margin-bottom:2px">VALIS</h1><div class="k" style="margin-bottom:14px">Finanças Pessoais · Vale do São Francisco</div><p class="k">Digite sua senha${API_URL?'':' (modo local de teste, sem planilha)'}</p>
   <input id="pw" type="password" placeholder="Senha" autocomplete="current-password"><div id="er" class="bad" style="min-height:18px;font-size:13px"></div>
   <button class="btn" style="width:100%" id="go">Entrar</button></div></div>`;
   const go=async()=>{const p=$('#pw').value;SENHA=p;
